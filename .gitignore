@@ -1,0 +1,25 @@
+# Your own settings - the app writes these as you use it
+config.json
+presets.json
+
+# Downloaded streams, caches, previews, finished videos
+work/
+output/
+
+# Models are downloaded on first use (hundreds of MB to 1 GB each)
+models/*
+!models/README.md
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editors / OS
+.vscode/
+.idea/
+.claude/
+Thumbs.db
+Desktop.ini
+.DS_Store

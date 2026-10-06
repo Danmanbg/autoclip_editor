@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoClip Editor</title>
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<div class="app">
+
+<header class="top">
+  <div class="brand">
+    <div class="mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5 3v18M19 3v18M5 8h14M5 16h14"/>
+      </svg>
+    </div>
+    <div>
+      <h1>AutoClip Editor</h1>
+      <p>Turn a stream into captioned vertical clips</p>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <span class="chip" id="chip-ffmpeg"><i class="dot"></i> checking…</span>
+  <button class="btn sm ghost" id="btn-open-out">Output folder</button>
+</header>
+
+<!-- ============================= 1. SOURCE ============================= -->
+<section class="card" id="card-source">
+  <div class="head">
+    <div class="step num"></div>
+    <h2>Your stream</h2>
+    <span class="sub" id="source-sub">Twitch VOD, YouTube link, or a file on your PC</span>
+  </div>
+  <div class="body">
+    <div id="drop">
+      <div class="row">
+        <input type="text" id="source-input" style="flex:1;min-width:280px"
+               placeholder="https://www.twitch.tv/videos/… &nbsp;·&nbsp; https://youtube.com/watch?v=… &nbsp;·&nbsp; or D:\recordings\stream.mp4">
+        <button class="btn" id="btn-browse">Browse…</button>
+        <button class="btn primary" id="btn-load">Load stream</button>
+      </div>
+      <p class="hint" style="margin:10px 0 0">
+        Drop a video file anywhere on this box. Long Twitch VODs download in the background — you can trim what gets fetched below.
+      </p>
+      <div class="recents" id="recents"></div>
+    </div>
+
+    <details class="more" id="range-more">
+      <summary>Only use part of a long stream</summary>
+      <div class="grid c4">
+        <div class="field">
+          <label>Fetch from</label>
+          <input type="text" id="range-start" placeholder="0:00:00">
+          <span class="hint">h:mm:ss</span>
+        </div>
+        <div class="field">
+          <label>Fetch until</label>
+          <input type="text" id="range-end" placeholder="end of stream">
+          <span class="hint">leave blank for all</span>
+        </div>
+        <div class="field">
+          <label>Download quality</label>
+          <select id="max-height">
+            <option value="1080" selected>1080p</option>
+            <option value="720">720p (faster)</option>
+            <option value="1440">1440p</option>
+            <option value="2160">4K</option>
+          </select>
+        </div>
+      </div>
+    </details>
+
+    <div id="source-loaded" style="display:none;margin-top:14px">
+      <div class="src-summary">
+        <img class="thumb" id="src-thumb" alt="">
+        <div class="meta">
+          <b id="src-title"></b>
+          <span id="src-meta"></span>
+        </div>
+        <button class="btn sm ghost" id="btn-change-source">Change</button>
+      </div>
+    </div>
+    <div id="source-progress" style="display:none;margin-top:14px">
+      <div class="status-line">
+        <span class="stage" id="src-stage">Working…</span>
+        <span class="spacer"></span>
+        <button class="btn sm danger" id="btn-cancel-source">Cancel</button>
+      </div>
+      <div class="progress"><i id="src-bar"></i></div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================= MODE ============================= -->
+<section class="card locked" id="card-mode">
+  <div class="head">
+    <div class="step num"></div>
+    <h2>What do you want to make?</h2>
+  </div>
+  <div class="body">
+    <div class="modes" data-setting="mode">
+      <button data-value="clips">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">
+          <rect x="15" y="4" width="18" height="40" rx="4"/><rect x="19" y="9" width="10" height="9" rx="1.5"/>
+          <path d="M19 24h10M19 29h10M19 34h6"/></svg>
+        <b>Short clips</b>
+        <span>Finds the best moments and makes vertical clips with your facecam on top and captions</span>
+      </button>
+      <button data-value="clean">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">
+          <rect x="3" y="10" width="42" height="26" rx="4"/><path d="M17 42h14M24 36v6"/>
+          <path d="M17 19l14 8M31 19l-14 8"/></svg>
+        <b>Full stream, cleaned up</b>
+        <span>Keeps the whole video exactly as it is &mdash; just bleeps the swearing so it stays monetised</span>
+      </button>
+      <button data-value="reel">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">
+          <rect x="3" y="12" width="42" height="24" rx="4"/>
+          <path d="M3 18h42M3 30h42M13 12v24M24 12v24M35 12v24"/></svg>
+        <b>Highlight reel</b>
+        <span>You pick the best moments and they are joined into one 10&ndash;15 minute video</span>
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- ============================= 2. LAYOUT ============================= -->
+<section class="card locked clips-only" id="card-layout">
+  <div class="head">
+    <div class="step num"></div>
+    <h2>Layout</h2>
+    <span class="sub">Drag the box around your facecam or PNGTuber, then check the preview</span>
+  </div>
+  <div class="body">
+    <div class="editor">
+      <div>
+        <div class="row" style="margin-bottom:11px">
+          <div class="seg" id="seg-target">
+            <button data-value="cam" class="on">Facecam box</button>
+            <button data-value="game">Gameplay area</button>
+          </div>
+          <span class="spacer" style="flex:1"></span>
+          <button class="btn sm" id="btn-reset-cam">Reset to 305×305 bottom-left</button>
+        </div>
+
+        <div class="stage-wrap">
+          <div class="stage" id="stage">
+            <img id="stage-img" alt="stream frame">
+            <div class="cropbox" id="cropbox">
+              <span class="tag" id="cropbox-tag">Facecam 305×305</span>
+              <i class="h nw"></i><i class="h ne"></i><i class="h sw"></i><i class="h se"></i>
+            </div>
+          </div>
+        </div>
+
+        <div class="field" style="margin-top:11px">
+          <label>Frame <span class="val" id="scrub-val">0:00</span></label>
+          <input type="range" id="scrub" min="0" max="1000" value="150">
+        </div>
+
+        <div class="grid c4" style="margin-top:6px">
+          <div class="field"><label>X</label><input type="number" data-setting="cam.x" step="1"></div>
+          <div class="field"><label>Y</label><input type="number" data-setting="cam.y" step="1"></div>
+          <div class="field"><label>Width</label><input type="number" data-setting="cam.w" step="1"></div>
+          <div class="field"><label>Height</label><input type="number" data-setting="cam.h" step="1"></div>
+        </div>
+      </div>
+
+      <div class="preview-pane">
+        <div class="preview-frame" id="preview-frame">
+          <img id="preview-img" alt="preview">
+          <div class="spin"><div class="spinner"></div></div>
+        </div>
+        <p class="preview-cap" id="preview-cap">Live preview · 1080×1920</p>
+        <button class="btn sm ghost" id="btn-refresh-preview" style="width:100%">Refresh preview</button>
+      </div>
+    </div>
+
+    <div class="grid c3" style="margin-top:18px">
+      <div class="field">
+        <label>Facecam panel height <span class="val" id="v-top-ratio"></span></label>
+        <input type="range" data-setting="top_ratio" min="0.15" max="0.75" step="0.01">
+        <span class="hint">How much of the vertical video your facecam takes up</span>
+      </div>
+      <div class="field">
+        <label>Panel background</label>
+        <div class="seg" data-setting="top_bg">
+          <button data-value="blur">Blurred stream</button>
+          <button data-value="color">Solid colour</button>
+          <button data-value="image">Image</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Gameplay framing</label>
+        <div class="seg" data-setting="game_fit">
+          <button data-value="fill">Fill (crop sides)</button>
+          <button data-value="fit">Fit (show all)</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid c3" style="margin-top:14px">
+      <div class="field">
+        <label>Gameplay horizontal focus <span class="val" id="v-focus-x"></span></label>
+        <input type="range" data-setting="game_focus_x" min="0" max="1" step="0.01">
+        <span class="hint">Slide to keep the action in shot</span>
+      </div>
+      <div class="field">
+        <label>Gameplay zoom <span class="val" id="v-game-zoom"></span></label>
+        <input type="range" data-setting="game_zoom" min="1" max="2.2" step="0.01">
+      </div>
+      <div class="field">
+        <label>Facecam size <span class="val" id="v-cam-scale"></span></label>
+        <input type="range" data-setting="cam_scale" min="0.4" max="1.6" step="0.01">
+      </div>
+    </div>
+
+    <details class="more">
+      <summary>More layout options</summary>
+      <div class="grid c4">
+        <div class="field">
+          <label>Facecam position</label>
+          <div class="seg" data-setting="cam_anchor">
+            <button data-value="left">Left</button>
+            <button data-value="center">Centre</button>
+            <button data-value="right">Right</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Facecam fit</label>
+          <div class="seg" data-setting="cam_fit">
+            <button data-value="fit">Show all</button>
+            <button data-value="fill">Fill panel</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Nudge across <span class="val" id="v-cam-ox"></span></label>
+          <input type="range" data-setting="cam_offset_x" min="-400" max="400" step="2">
+        </div>
+        <div class="field">
+          <label>Nudge down <span class="val" id="v-cam-oy"></span></label>
+          <input type="range" data-setting="cam_offset_y" min="-400" max="400" step="2">
+        </div>
+        <div class="field">
+          <label>Background blur <span class="val" id="v-top-blur"></span></label>
+          <input type="range" data-setting="top_blur" min="0" max="70" step="1">
+        </div>
+        <div class="field">
+          <label>Background dim <span class="val" id="v-top-dim"></span></label>
+          <input type="range" data-setting="top_dim" min="0" max="0.8" step="0.01">
+        </div>
+        <div class="field">
+          <label>Background colour</label>
+          <input type="color" data-setting="top_bg_color">
+        </div>
+        <div class="field">
+          <label>Background image</label>
+          <div class="row">
+            <input type="text" data-setting="top_bg_image" placeholder="pick an image…" style="flex:1">
+            <button class="btn sm" id="btn-bg-image">…</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Divider bar <span class="val" id="v-divider"></span></label>
+          <input type="range" data-setting="divider" min="0" max="30" step="1">
+        </div>
+        <div class="field">
+          <label>Divider colour</label>
+          <input type="color" data-setting="divider_color">
+        </div>
+        <div class="field">
+          <label>Vertical focus <span class="val" id="v-focus-y"></span></label>
+          <input type="range" data-setting="game_focus_y" min="0" max="1" step="0.01">
+        </div>
+        <div class="field">
+          <label style="margin-bottom:2px">Mirror facecam</label>
+          <label class="check"><input type="checkbox" data-setting="cam_flip">
+            <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+            Flip horizontally</label>
+        </div>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <label class="check"><input type="checkbox" data-setting="cam_enabled" checked>
+          <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+          Include the facecam panel</label>
+        <span class="hint">Turn off for a plain full-screen gameplay crop</span>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ============================= 3. CLIPS ============================= -->
+<section class="card locked" id="card-clips">
+  <div class="head">
+    <div class="step num"></div>
+    <h2 id="clips-title">Which moments to grab</h2>
+    <span class="sub" id="clips-sub">Loud reactions, hype in chat, and lively talking score highest</span>
+  </div>
+  <div class="body">
+    <div class="grid c3 clips-only">
+      <div class="field">
+        <label>How many clips <span class="val" id="v-clip-count"></span></label>
+        <input type="range" data-setting="clip_count" min="1" max="30" step="1">
+        <span class="hint">You get this many unless the stream really has less</span>
+      </div>
+      <div class="field">
+        <label>Clip length <span class="val" id="v-target-len"></span></label>
+        <input type="range" data-setting="target_len" min="8" max="90" step="1">
+        <span class="hint">Shorts and TikTok cap out at 60s</span>
+      </div>
+      <div class="field">
+        <label>Sensitivity <span class="val" id="v-sensitivity"></span></label>
+        <input type="range" data-setting="sensitivity" min="0" max="1" step="0.01">
+        <span class="hint" id="sens-hint"></span>
+      </div>
+    </div>
+
+    <div class="field" id="range-field" style="margin-top:18px">
+      <label id="range-label">Which part of the video to use <span class="val" id="v-range"></span></label>
+      <div class="rangepick" id="rangepick">
+        <div class="rp-track" id="rp-track">
+          <div class="rp-fill" id="rp-fill"></div>
+          <i class="rp-knob" id="rp-a" data-h="a" data-time="0:00"></i>
+          <i class="rp-knob" id="rp-b" data-h="b" data-time="end"></i>
+        </div>
+        <div class="rp-ticks"><span id="rp-t0">0:00</span><span id="rp-t1"></span></div>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <span class="hint">From</span>
+        <input type="text" id="range-from" placeholder="0:00:00" style="width:104px">
+        <span class="hint">to</span>
+        <input type="text" id="range-to" placeholder="end" style="width:104px">
+        <button class="btn sm ghost" id="btn-range-all">Whole video</button>
+        <button class="btn sm ghost" id="btn-range-here">Start at current frame</button>
+        <span class="hint" id="range-hint">Clips are only taken from this stretch</span>
+      </div>
+    </div>
+
+    <div class="clips-only">
+    <div class="row" style="margin-top:16px;gap:20px">
+      <label class="check"><input type="checkbox" data-setting="use_chat" checked>
+        <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+        Use Twitch chat reactions</label>
+      <label class="check"><input type="checkbox" data-setting="use_audio" checked>
+        <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+        Use loud moments</label>
+      <label class="check"><input type="checkbox" data-setting="use_speech" checked>
+        <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+        Prefer talking over silence</label>
+      <label class="check"><input type="checkbox" data-setting="whole_video">
+        <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+        Just convert the whole video</label>
+    </div>
+
+    <details class="more">
+      <summary>Fine tuning and hand-picked clips</summary>
+      <div class="grid c4">
+        <div class="field">
+          <label>Shortest clip <span class="val" id="v-clip-min"></span></label>
+          <input type="range" data-setting="clip_min" min="5" max="60" step="1">
+        </div>
+        <div class="field">
+          <label>Longest clip <span class="val" id="v-clip-max"></span></label>
+          <input type="range" data-setting="clip_max" min="10" max="180" step="1">
+        </div>
+        <div class="field">
+          <label>Run-up before the peak <span class="val" id="v-lead-in"></span></label>
+          <input type="range" data-setting="lead_in" min="0" max="8" step="0.5">
+          <span class="hint">Build-up kept before the loud bit</span>
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <div class="row">
+          <b style="font-size:13px">Hand-picked clips</b>
+          <span class="hint">Added here, these are used instead of automatic detection</span>
+          <span style="flex:1"></span>
+          <button class="btn sm" id="btn-add-manual">Add from current frame</button>
+        </div>
+        <div id="manual-list" style="margin-top:10px"></div>
+      </div>
+    </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============================= 4. CAPTIONS ============================= -->
+<section class="card locked clips-only" id="card-captions">
+  <div class="head">
+    <div class="step num"></div>
+    <h2>Captions</h2>
+    <span class="sub">Burned in, word by word</span>
+    <span class="spacer"></span>
+    <label class="check" onclick="event.stopPropagation()"><input type="checkbox" data-setting="captions" checked>
+      <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+      On</label>
+  </div>
+  <div class="body">
+    <div class="grid c3">
+      <div class="field">
+        <label>Style</label>
+        <div class="seg" data-setting="cap_style">
+          <button data-value="karaoke">Karaoke</button>
+          <button data-value="pop">Pop</button>
+          <button data-value="oneword">One word</button>
+          <button data-value="plain">Plain</button>
+        </div>
+        <span class="hint" id="cap-style-hint"></span>
+      </div>
+      <div class="field">
+        <label>Font</label>
+        <select data-setting="cap_font" id="font-select"></select>
+      </div>
+      <div class="field">
+        <label>Words on screen <span class="val" id="v-cap-words"></span></label>
+        <input type="range" data-setting="cap_max_words" min="1" max="8" step="1">
+      </div>
+    </div>
+
+    <div class="grid c4" style="margin-top:14px">
+      <div class="field">
+        <label>Size <span class="val" id="v-cap-size"></span></label>
+        <input type="range" data-setting="cap_size" min="30" max="140" step="1">
+      </div>
+      <div class="field">
+        <label>Height on screen <span class="val" id="v-cap-pos"></span></label>
+        <input type="range" data-setting="cap_pos" min="0.1" max="0.92" step="0.005">
+      </div>
+      <div class="field">
+        <label>Outline <span class="val" id="v-cap-outline"></span></label>
+        <input type="range" data-setting="cap_outline" min="0" max="16" step="1">
+      </div>
+      <div class="field">
+        <label>Shadow <span class="val" id="v-cap-shadow"></span></label>
+        <input type="range" data-setting="cap_shadow" min="0" max="14" step="1">
+      </div>
+    </div>
+
+    <div class="grid c4" style="margin-top:14px">
+      <div class="field">
+        <label>Text colour</label>
+        <input type="color" data-setting="cap_color">
+      </div>
+      <div class="field">
+        <label>Highlight colour</label>
+        <input type="color" data-setting="cap_highlight">
+        <div class="swatches" id="hl-swatches"></div>
+      </div>
+      <div class="field">
+        <label>Outline colour</label>
+        <input type="color" data-setting="cap_outline_color">
+      </div>
+      <div class="field">
+        <label>Speech model</label>
+        <select data-setting="whisper_model" id="model-select"></select>
+        <span class="hint" id="model-hint"></span>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:16px;gap:20px">
+      <label class="check"><input type="checkbox" data-setting="cap_uppercase" checked>
+        <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+        UPPERCASE</label>
+      <label class="check"><input type="checkbox" data-setting="cap_pop" checked>
+        <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+        Scale up the active word</label>
+      <div class="field" style="flex:1;min-width:220px;max-width:340px">
+        <label>Spoken language</label>
+        <select data-setting="language">
+          <option value="auto">Detect automatically</option>
+          <option value="en">English</option><option value="es">Spanish</option>
+          <option value="pt">Portuguese</option><option value="fr">French</option>
+          <option value="de">German</option><option value="it">Italian</option>
+          <option value="nl">Dutch</option><option value="pl">Polish</option>
+          <option value="ru">Russian</option><option value="tr">Turkish</option>
+          <option value="sv">Swedish</option><option value="da">Danish</option>
+          <option value="no">Norwegian</option><option value="fi">Finnish</option>
+          <option value="cs">Czech</option><option value="bg">Bulgarian</option>
+          <option value="uk">Ukrainian</option><option value="ro">Romanian</option>
+          <option value="ja">Japanese</option><option value="ko">Korean</option>
+          <option value="zh">Chinese</option><option value="ar">Arabic</option>
+          <option value="hi">Hindi</option><option value="id">Indonesian</option>
+        </select>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+
+<!-- ============================= MOMENTS (reel) ============================= -->
+<section class="card locked reel-only" id="card-moments">
+  <div class="head">
+    <div class="step num"></div>
+    <h2>Pick the moments</h2>
+    <span class="sub">The app suggests the best ones &mdash; you decide what goes in</span>
+  </div>
+  <div class="body">
+    <div class="grid c3">
+      <div class="field">
+        <label>Reel length</label>
+        <div class="row" style="flex-wrap:nowrap">
+          <input type="number" data-setting="reel_min" min="1" max="120" step="1" style="width:76px">
+          <span class="hint">to</span>
+          <input type="number" data-setting="reel_max" min="1" max="180" step="1" style="width:76px">
+          <span class="hint">minutes</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Length of each moment <span class="val" id="v-reel-moment-len"></span></label>
+        <input type="range" data-setting="reel_moment_len" min="15" max="90" step="1">
+        <span class="hint">Longer than a Short &mdash; keep the build-up</span>
+      </div>
+      <div class="field">
+        <label>Between moments</label>
+        <div class="seg" data-setting="reel_transition">
+          <button data-value="fade">Quick fade</button>
+          <button data-value="cut">Straight cut</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <button class="btn primary" id="btn-find-moments">Find moments</button>
+      <span class="hint" id="moments-status">Finds about twice as much as you need, so you have a choice</span>
+    </div>
+    <div class="progress" id="moments-bar-wrap" style="margin-top:10px;display:none"><i id="moments-bar"></i></div>
+
+    <div id="moments-area" style="display:none;margin-top:18px">
+      <div class="reel-player">
+        <video id="moment-player" controls playsinline preload="none"></video>
+        <div class="reel-player-cap" id="moment-player-cap">Click a picture to watch that moment</div>
+      </div>
+      <div class="sel-bar">
+        <div class="sel-text"><b id="sel-total">0:00</b> <span id="sel-count"></span>
+          <span class="hint" id="sel-target"></span></div>
+        <div class="sel-meter"><i id="sel-fill"></i><span id="sel-band"></span></div>
+        <div class="row" style="gap:6px">
+          <button class="btn sm" id="btn-pick-best">Pick the best for me</button>
+          <button class="btn sm ghost" id="btn-pick-none">Clear</button>
+          <button class="btn sm ghost" id="btn-add-moment">+ Add the frame I&rsquo;m on</button>
+        </div>
+      </div>
+      <div class="moments" id="moments-list"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================= CLEAN-UP ============================= -->
+<section class="card locked" id="card-cleanup">
+  <div class="head">
+    <div class="step num"></div>
+    <h2>Keep it monetised</h2>
+    <span class="sub">Bleeps swearing and slurs, and stars them out of captions</span>
+    <span class="spacer"></span>
+    <label class="check" onclick="event.stopPropagation()"><input type="checkbox" data-setting="censor" checked>
+      <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+      On</label>
+  </div>
+  <div class="body">
+    <div class="grid c3">
+      <div class="field">
+        <label>Replace swearing with</label>
+        <div class="seg" data-setting="censor_action">
+          <button data-value="bleep">A bleep</button>
+          <button data-value="mute">Silence</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>What counts</label>
+        <div class="seg" data-setting="censor_mild">
+          <button data-value="false">Strong words</button>
+          <button data-value="true">Strong + mild</button>
+        </div>
+        <span class="hint" id="mild-hint"></span>
+      </div>
+      <div class="field" id="clean-model-field">
+        <label>Speech model for full streams</label>
+        <select data-setting="clean_model" id="clean-model-select"></select>
+        <span class="hint" id="clean-model-hint"></span>
+      </div>
+    </div>
+
+    <div class="field" style="margin-top:16px">
+      <label>Try it &mdash; type something you might say on stream</label>
+      <input type="text" id="censor-test"
+             placeholder="what the hell, that was a damn good cocktail you absolute...">
+      <div class="censor-out" id="censor-out">&nbsp;</div>
+    </div>
+
+    <details class="more">
+      <summary>Your own words, exceptions, and the bleep sound</summary>
+      <div class="grid c2">
+        <div class="field">
+          <label>Also bleep these</label>
+          <textarea data-setting="censor_extra" rows="3"
+                    placeholder="comma separated, e.g. a rival&#39;s name, a word your sponsor dislikes"></textarea>
+          <span class="hint">Plurals and -ing / -ed forms are covered automatically</span>
+        </div>
+        <div class="field">
+          <label>Never bleep these</label>
+          <textarea data-setting="censor_allow" rows="3"
+                    placeholder="e.g. cock (as in cocking a gun), prick"></textarea>
+          <span class="hint">For words your game uses innocently</span>
+        </div>
+      </div>
+      <div class="grid c3" style="margin-top:14px">
+        <div class="field">
+          <label>Bleep pitch <span class="val" id="v-censor-tone"></span></label>
+          <input type="range" data-setting="censor_tone" min="300" max="2500" step="50">
+        </div>
+        <div class="field">
+          <label>Bleep volume <span class="val" id="v-censor-gain"></span></label>
+          <input type="range" data-setting="censor_gain" min="0.03" max="0.8" step="0.01">
+        </div>
+        <div class="field">
+          <label>Extra margin around each word <span class="val" id="v-censor-pad"></span></label>
+          <input type="range" data-setting="censor_pad" min="0" max="0.3" step="0.01">
+        </div>
+      </div>
+      <div class="row clips-only" style="margin-top:14px">
+        <label class="check"><input type="checkbox" data-setting="censor_captions" checked>
+          <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+          Star the words out of the burned-in captions too</label>
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ============================= 5. OUTPUT ============================= -->
+<section class="card collapsible collapsed locked" id="card-output">
+  <div class="head">
+    <div class="step num"></div>
+    <h2>Output &amp; presets</h2>
+    <span class="sub">Fine if you never touch these</span>
+    <span class="spacer"></span>
+    <span class="caret">▾</span>
+  </div>
+  <div class="body">
+    <div class="grid c4">
+      <div class="field">
+        <label>Video size</label>
+        <div class="seg" id="seg-size">
+          <button data-value="1080x1920">1080×1920</button>
+          <button data-value="720x1280">720×1280</button>
+          <button data-value="1080x1350">4:5 feed</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Frame rate</label>
+        <select data-setting="fps">
+          <option value="30">30 fps</option><option value="60">60 fps</option>
+          <option value="24">24 fps</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Quality <span class="val" id="v-quality"></span></label>
+        <input type="range" data-setting="quality" min="14" max="30" step="1">
+        <span class="hint">Lower number = better and bigger</span>
+      </div>
+      <div class="field">
+        <label>Encoder</label>
+        <select data-setting="encoder" id="encoder-select"></select>
+      </div>
+    </div>
+    <div class="grid c2" style="margin-top:14px">
+      <div class="field">
+        <label>Save clips to</label>
+        <div class="row">
+          <input type="text" data-setting="out_folder" id="out-folder" placeholder="output folder" style="flex:1">
+          <button class="btn" id="btn-pick-out">…</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Presets</label>
+        <div class="row">
+          <select id="preset-select" style="flex:1"><option value="">— choose a preset —</option></select>
+          <button class="btn sm" id="btn-save-preset">Save</button>
+          <button class="btn sm danger" id="btn-del-preset">Delete</button>
+        </div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <label class="check"><input type="checkbox" data-setting="audio_norm" checked>
+        <span class="box"><svg viewBox="0 0 12 12" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M2 6.2l2.6 2.6L10 3.4"/></svg></span>
+        Even out the loudness</label>
+      <span style="flex:1"></span>
+      <button class="btn sm ghost" id="btn-cleanup">Clear cached downloads</button>
+    </div>
+  </div>
+</section>
+
+<div class="go-bar">
+  <button class="btn primary" id="go" disabled>Make my clips</button>
+  <button class="btn danger" id="btn-cancel-render" style="display:none">Stop</button>
+  <span class="est" id="estimate"></span>
+</div>
+
+<!-- ============================= RESULTS ============================= -->
+<section class="card" id="card-results" style="display:none">
+  <div class="head">
+    <div class="step">✓</div>
+    <h2>Your clips</h2>
+    <span class="sub" id="results-sub"></span>
+    <span class="spacer"></span>
+    <button class="btn sm ghost" id="btn-open-clips">Open folder</button>
+  </div>
+  <div class="body">
+    <div class="status-line">
+      <span class="stage" id="job-stage">…</span>
+      <span class="spacer"></span>
+      <span class="stage" id="job-pct">0%</span>
+    </div>
+    <div class="progress"><i id="job-bar"></i></div>
+    <canvas id="hype" style="margin-top:14px;display:none"></canvas>
+    <div class="clips" id="clips"></div>
+    <div class="titles-panel" id="titles-panel" style="display:none">
+      <div class="row" style="align-items:flex-end">
+        <div>
+          <h3>Titles &amp; description</h3>
+          <span class="hint">Built from what you actually said</span>
+        </div>
+        <span style="flex:1"></span>
+        <div class="field" style="width:200px">
+          <label>Game</label>
+          <input type="text" id="t-game" placeholder="e.g. Half-Life">
+        </div>
+        <div class="field" style="width:220px">
+          <label>Your hashtags</label>
+          <input type="text" id="t-tags" placeholder="#gaming #pngtuber">
+        </div>
+        <button class="btn sm" id="btn-t-update">Update</button>
+      </div>
+      <div class="t-cols">
+        <div class="t-group">
+          <h4>From your own words</h4>
+          <ul class="t-list" id="t-quotes"></ul>
+        </div>
+        <div class="t-group">
+          <h4>AI ideas <span class="hint" id="t-ai-note"></span></h4>
+          <ul class="t-list" id="t-ai"></ul>
+          <button class="btn sm ghost" id="btn-t-ai">Suggest more</button>
+        </div>
+      </div>
+      <div class="t-group">
+        <div class="row"><h4 style="margin:0">Description</h4><span style="flex:1"></span>
+          <button class="btn sm" id="btn-t-desc">Copy description</button></div>
+        <textarea id="t-desc" rows="9" readonly></textarea>
+      </div>
+    </div>
+    <details class="more" id="log-more"><summary>Details</summary><div id="log"></div></details>
+  </div>
+</section>
+
+</div>
+<div class="toast-wrap" id="toasts"></div>
+<script src="/assets/app.js"></script>
+</body>
+</html>
